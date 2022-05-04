@@ -43,8 +43,9 @@ sudo systemctl enable rocketchat
 sudo systemctl start rocketchat
 #NJINX
 sudo apt install nginx -y
-#Falta la configuración
-#
+cd /etc/nginx/sites-available
+sudo nano /etc/nginx/sites-available/default
+# - crear página web falta -
 #Let's Encript
 sudo apt install certbot python3-certbot-nginx -y
 #Lo mismo que lo anterior
