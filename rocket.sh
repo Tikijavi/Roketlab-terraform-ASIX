@@ -1,51 +1,116 @@
 #!/bin/bash
 sudo apt-get update -y
-#mongodb quitar despues de que shakir haga cosas UwU
-wget -qO - https://www.mongodb.org/static/pgp/server-4.4.asc | sudo apt-key add -
-echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/4.4 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.4.list
-sudo apt-get -y update
-sudo apt-get install -y curl
-curl -sL https://deb.nodesource.com/setup_12.x | sudo bash -
-sudo apt-get install -y build-essential mongodb-org nodejs graphicsmagick
-sudo apt install npm -y
-sudo npm install -g inherits n
-sudo ln -s /usr/bin/node /usr/local/bin/node
-#Install Rocketchat
-curl -L https://releases.rocket.chat/latest/download -o /tmp/rocket.chat.tgz
-tar -xzf /tmp/rocket.chat.tgz -C /tmp
-cd /tmp/bundle/programs/server && npm install
-cd ~/
-sudo mv /tmp/bundle /opt/Rocket.Chat
-#User rocketchat
-sudo useradd -M rocketchat
-sudo usermod -L rocketchat
-sudo chown -R rocketchat:rocketchat /opt/Rocket.Chat
-#Porros
-cat << EOF |sudo tee -a /etc/systemd/system/rocketchat.service
-[Unit]
-Description=The Rocket.Chat server
-After=network.target remote-fs.target nss-lookup.target nginx.service mongod.service
-[Service]
-ExecStart=/usr/local/bin/node /opt/Rocket.Chat/main.js
-StandardOutput=syslog
-StandardError=syslog
-SyslogIdentifier=rocketchat
-User=rocketchat
-Environment=MONGO_URL=mongodb://localhost:27017/rocketchat?replicaSet=rs01 MONGO_OPLOG_URL=mongodb://localhost:27017/local?replicaSet=rs01 ROOT_URL=http://localhost:3000/ PORT=3000
-[Install]
-WantedBy=multi-user.target
+sudo apt install certbot
+sudo certbot certonly --standalone --email cf20javier.sanchez@iesjoandaustria.org -d repte3.ddns.net
+sudo apt-get install nginx -y
+sudo mv /etc/nginx/sites-available/default /etc/nginx/sites-available/default.reference
+touch /etc/nginx/sites-available/default
+cat << EOF |sudo tee -a /etc/nginx/sites-available/default
+server {
+    listen 443 ssl;
+
+    server_name repte3.ddns.net;
+
+    ssl_certificate /etc/letsencrypt/live/repte3.ddns.net/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/repte3.ddns.net/privkey.pem;
+    ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
+    ssl_prefer_server_ciphers on;
+    ssl_ciphers 'EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH';
+
+    root /usr/share/nginx/html;
+    index index.html index.htm;
+
+    # Make site accessible from http://localhost/
+    server_name localhost;
+
+    location / {
+        proxy_pass http://localhost:3000/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$http_host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto http;
+        proxy_set_header X-Nginx-Proxy true;
+        proxy_redirect off;
+    }
+}
+
+server {
+    listen 80;
+
+    server_name repte3.ddns.net;
+
+    return 301 https://\$host\$request_uri;
+}
 EOF
-sudo sed -i "s/^#replication:/replication:\n  replSetName: rs01/" /etc/mongod.conf
-sudo systemctl daemon-reload
-sudo systemctl enable mongod
-sudo systemctl restart mongod
-sudo systemctl enable rocketchat
-sudo systemctl start rocketchat
-#NJINX
-sudo apt install nginx -y
-cd /etc/nginx/sites-available
-sudo nano /etc/nginx/sites-available/default
-# - crear página web falta -
-#Let's Encript
-sudo apt install certbot python3-certbot-nginx -y
-#Lo mismo que lo anterior
+sudo nginx -t
+sudo systemctl restart nginx
+sudo apt-get update -y
+sudo apt-get install apt-transport-https ca-certificates curl gnupg-agent software-properties-common -y
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+sudo apt-key fingerprint 0EBFCD88
+# confirm the fingerprint matches "9DC8 5822 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88"
+sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+sudo apt-get update -y
+sudo apt-get install docker-ce docker-ce-cli containerd.io -y
+sudo curl -L "https://github.com/docker/compose/releases/download/1.26.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+sudo mkdir -p /opt/docker/rocket.chat/data/runtime/db
+sudo mkdir -p /opt/docker/rocket.chat/data/dump
+cat << EFO |sudo tee -a /opt/docker/rocket.chat/docker-compose.yml
+version: '2'
+
+services:
+  rocketchat:
+    image: rocket.chat:latest
+    command: >
+      bash -c
+        "for i in 'seq 1 30'; do
+          node main.js &&
+          s=$$? && break || s=$$?;
+          echo \"Tried $$i times. Waiting 5 secs...\";
+          sleep 5;
+        done; (exit $$s)"
+    restart: unless-stopped
+    volumes:
+      - ./uploads:/app/uploads
+    environment:
+      - PORT=3000
+      - ROOT_URL=https://repte3.ddns.net
+      - MONGO_URL=mongodb://mongo:27017/rocketchat
+      - MONGO_OPLOG_URL=mongodb://mongo:27017/local
+    depends_on:
+      - mongo
+    ports:
+      - 3000:3000
+
+  mongo:
+    image: mongo:4.0
+    restart: unless-stopped
+    command: mongod --smallfiles --oplogSize 128 --replSet rs0 --storageEngine=mmapv1
+    volumes:
+      - ./data/runtime/db:/data/db
+      - ./data/dump:/dump
+
+  # this container's job is just to run the command to initialize the replica set.
+  # it will run the command and remove himself (it will not stay running)
+  mongo-init-replica:
+    image: mongo:4.0
+    command: >
+      bash -c
+        "for i in 'seq 1 30'; do
+          mongo mongo/rocketchat --eval \"
+            rs.initiate({
+              _id: 'rs0',
+              members: [ { _id: 0, host: 'localhost:27017' } ]})\" &&
+          s=$$? && break || s=$$?;
+          echo \"Tried $$i times. Waiting 5 secs...\";
+          sleep 5;
+        done; (exit $$s)"
+    depends_on:
+    - mongo
+EFO
+cd /opt/docker/rocket.chat
+sudo docker-compose up -d
