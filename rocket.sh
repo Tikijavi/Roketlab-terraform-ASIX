@@ -114,3 +114,4 @@ services:
 EFO
 cd /opt/docker/rocket.chat
 sudo docker-compose up -d
+
