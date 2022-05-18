@@ -1,6 +1,6 @@
 #!/bin/bash
 sudo apt-get update -y
-sudo apt install certbot
+sudo apt install certbot -y
 sudo certbot certonly --standalone --email cf20javier.sanchez@iesjoandaustria.org -d repte3.ddns.net
 sudo apt-get install nginx -y
 sudo mv /etc/nginx/sites-available/default /etc/nginx/sites-available/default.reference
