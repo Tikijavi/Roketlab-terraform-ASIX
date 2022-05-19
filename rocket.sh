@@ -1,28 +1,23 @@
 #!/bin/bash
 sudo apt-get update -y
-sudo apt install certbot -y
-sudo certbot certonly --standalone --email cf20javier.sanchez@iesjoandaustria.org -d repte3.ddns.net
+sudo apt install openssl -y
+sudo openssl req -newkey rsa:4096 -x509 -sha256 -days 3650 -nodes -subj "/C=ES/ST=barcelona/L=Barcelona/O=GrupoJavi" -out /etc/ssl/certs/rocket.crt -keyout /etc/ssl/private/rocket.key
 sudo apt-get install nginx -y
 sudo mv /etc/nginx/sites-available/default /etc/nginx/sites-available/default.reference
 touch /etc/nginx/sites-available/default
 cat << EOF |sudo tee -a /etc/nginx/sites-available/default
 server {
     listen 443 ssl;
-
     server_name repte3.ddns.net;
-
-    ssl_certificate /etc/letsencrypt/live/repte3.ddns.net/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/repte3.ddns.net/privkey.pem;
+    ssl_certificate /etc/ssl/certs/rocket.crt;
+    ssl_certificate_key /etc/ssl/private/rocket.key;
     ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
     ssl_prefer_server_ciphers on;
     ssl_ciphers 'EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH';
-
     root /usr/share/nginx/html;
     index index.html index.htm;
-
     # Make site accessible from http://localhost/
     server_name localhost;
-
     location / {
         proxy_pass http://localhost:3000/;
         proxy_http_version 1.1;
@@ -36,12 +31,9 @@ server {
         proxy_redirect off;
     }
 }
-
 server {
     listen 80;
-
     server_name repte3.ddns.net;
-
     return 301 https://\$host\$request_uri;
 }
 EOF
@@ -61,7 +53,6 @@ sudo mkdir -p /opt/docker/rocket.chat/data/runtime/db
 sudo mkdir -p /opt/docker/rocket.chat/data/dump
 cat << EFO |sudo tee -a /opt/docker/rocket.chat/docker-compose.yml
 version: '2'
-
 services:
   rocketchat:
     image: rocket.chat:latest
@@ -85,7 +76,6 @@ services:
       - mongo
     ports:
       - 3000:3000
-
   mongo:
     image: mongo:4.0
     restart: unless-stopped
@@ -93,7 +83,6 @@ services:
     volumes:
       - ./data/runtime/db:/data/db
       - ./data/dump:/dump
-
   # this container's job is just to run the command to initialize the replica set.
   # it will run the command and remove himself (it will not stay running)
   mongo-init-replica:
@@ -114,4 +103,3 @@ services:
 EFO
 cd /opt/docker/rocket.chat
 sudo docker-compose up -d
-
